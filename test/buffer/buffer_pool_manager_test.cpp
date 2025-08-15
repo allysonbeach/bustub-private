@@ -31,7 +31,7 @@ void CopyString(char *dest, const std::string &src) {
   snprintf(dest, BUSTUB_PAGE_SIZE, "%s", src.c_str());
 }
 
-TEST(BufferPoolManagerTest, DISABLED_VeryBasicTest) {
+TEST(BufferPoolManagerTest, VeryBasicTest) {
   // A very basic test.
 
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
@@ -58,11 +58,10 @@ TEST(BufferPoolManagerTest, DISABLED_VeryBasicTest) {
     const auto guard = bpm->ReadPage(pid);
     EXPECT_STREQ(guard.GetData(), str.c_str());
   }
-
   ASSERT_TRUE(bpm->DeletePage(pid));
 }
 
-TEST(BufferPoolManagerTest, DISABLED_PagePinEasyTest) {
+TEST(BufferPoolManagerTest, PagePinEasyTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(2, disk_manager.get(), 5);
 
@@ -160,7 +159,7 @@ TEST(BufferPoolManagerTest, DISABLED_PagePinEasyTest) {
   remove(disk_manager->GetLogFileName());
 }
 
-TEST(BufferPoolManagerTest, DISABLED_PagePinMediumTest) {
+TEST(BufferPoolManagerTest, PagePinMediumTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
 
@@ -239,7 +238,7 @@ TEST(BufferPoolManagerTest, DISABLED_PagePinMediumTest) {
   remove(db_fname);
 }
 
-TEST(BufferPoolManagerTest, DISABLED_PageAccessTest) {
+TEST(BufferPoolManagerTest, PageAccessTest) {
   const size_t rounds = 50;
 
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
@@ -277,7 +276,7 @@ TEST(BufferPoolManagerTest, DISABLED_PageAccessTest) {
   thread.join();
 }
 
-TEST(BufferPoolManagerTest, DISABLED_ContentionTest) {
+TEST(BufferPoolManagerTest, ContentionTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
 
@@ -319,7 +318,7 @@ TEST(BufferPoolManagerTest, DISABLED_ContentionTest) {
   thread1.join();
 }
 
-TEST(BufferPoolManagerTest, DISABLED_DeadlockTest) {
+TEST(BufferPoolManagerTest, DeadlockTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
 
@@ -359,7 +358,7 @@ TEST(BufferPoolManagerTest, DISABLED_DeadlockTest) {
   child.join();
 }
 
-TEST(BufferPoolManagerTest, DISABLED_EvictableTest) {
+TEST(BufferPoolManagerTest, EvictableTest) {
   // Test if the evictable status of a frame is always correct.
   const size_t rounds = 1000;
   const size_t num_readers = 8;
@@ -413,13 +412,21 @@ TEST(BufferPoolManagerTest, DISABLED_EvictableTest) {
       read_guard.Drop();
     } else {
       // Take the read latch on the page and pin it.
+      if (bpm->GetPinCount(winner_pid).has_value()) {
+        // std::cerr << "In the test, BEFORE write page, this is pin count: " << bpm->GetPinCount(winner_pid).value() <<
+        // std::endl;
+      }
       auto write_guard = bpm->WritePage(winner_pid);
-
+      if (bpm->GetPinCount(winner_pid).has_value()) {
+        // std::cerr << "In the test, get the write page, this is pin count: " << bpm->GetPinCount(winner_pid).value()
+        // << std::endl;
+      }
       // Wake up all of the readers.
       signal = true;
       cv.notify_all();
       lock.unlock();
 
+      // std::cerr << "In the test, right before drop pin count: " << bpm->GetPinCount(winner_pid).value() << std::endl;
       // Allow other threads to read.
       write_guard.Drop();
     }

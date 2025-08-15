@@ -112,11 +112,13 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  * You will maintain a thread-safe, monotonically increasing counter in the form of a `std::atomic<page_id_t>`.
  * See the documentation on [atomics](https://en.cppreference.com/w/cpp/atomic/atomic) for more information.
  *
- * TODO(P1): Add implementation.
  *
  * @return The page ID of the newly allocated page.
  */
-auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::NewPage() -> page_id_t {
+  next_page_id_.fetch_add(1);
+  return next_page_id_.load() - 1;
+}
 
 /**
  * @brief Removes a page from the database, both on disk and in memory.
@@ -132,12 +134,41 @@ auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add im
  *
  * You should call `DeallocatePage` in the disk scheduler to make the space available for new pages.
  *
- * TODO(P1): Add implementation.
  *
  * @param page_id The page ID of the page we want to delete.
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // Case 1: page is not in the page table, so not in memory. Remove from disk
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) {
+    // Page id is not in the page table, thereofre it is not in memory, but could be on disk
+    disk_scheduler_->DeallocatePage(page_id);
+    return true;
+  }
+
+  auto frame_opt = FindFrameHeader(it->second);
+  // If the page is in the page table, then it should find the frame
+  BUSTUB_ASSERT(frame_opt.has_value(), "BufferPoolManager::DeletePage: Frame header not found for existing page");
+  std::shared_ptr<FrameHeader> frame = frame_opt.value();
+  if (frame->pin_count_.load() > 0) {
+    // It is currently pinned and cannot be deleted from memory and/or disk
+    return false;
+  }
+
+  // remove from the replacer
+  replacer_->Remove(frame->frame_id_);
+  // reset all of the things
+  page_table_.erase(page_id);
+  frame->page_id_ = INVALID_PAGE_ID;
+  frame->Reset();
+  free_frames_.push_back(frame->frame_id_);
+
+  // then deallocate page from disk
+  disk_scheduler_->DeallocatePage(page_id);
+  return true;
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
@@ -171,7 +202,6 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  *
  * These two functions are the crux of this project, so we won't give you more hints than this. Good luck!
  *
- * TODO(P1): Add implementation.
  *
  * @param page_id The ID of the page we want to write to.
  * @param access_type The type of page access.
@@ -179,7 +209,112 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  * returns `std::nullopt`, otherwise returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::unique_lock<std::mutex> lock(*bpm_latch_);
+
+  // Case 1:
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // Then page is already in BPM memory
+    auto it = page_table_.find(page_id);
+    auto frame_opt = FindFrameHeader(it->second);  // it -> second get's the value, frame_id
+    std::shared_ptr<FrameHeader> frame = frame_opt.value();
+    BUSTUB_ASSERT(frame, "BufferPoolManager::CheckedWritePage FrameHeader should exist after inserting frame_id");
+
+    // Create the Write Guard
+    frame->pin_count_.fetch_add(1);
+    replacer_->RecordAccess(frame->frame_id_);
+    replacer_->SetEvictable(frame->frame_id_, false);
+    lock.unlock();
+    // TODO(abeach): move the pin_count_ incrementing outside of the constructor to here - since
+    // TODO(abeach): unlock BPM's latch after you update the pin count
+    WritePageGuard guard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+    return guard;
+  }
+
+  // Case 2:
+  // Memory is available, need to do I/O
+  if (!free_frames_.empty()) {
+    // Pick a free frame from free_frames
+    frame_id_t new_frame_id = free_frames_.front();
+    free_frames_.remove(new_frame_id);
+    auto frame_opt = FindFrameHeader(new_frame_id);
+
+    BUSTUB_ASSERT(frame_opt.has_value(),
+                  "BufferPoolManager::CheckedWritePage FrameHeader should exist after retrieving from free frames");
+
+    std::shared_ptr<FrameHeader> frame = frame_opt.value();
+
+    // Schedule the I/O to read the page data from disk to memory
+    ScheduleIO(false, frame->GetDataMut(), page_id);
+
+    // Update the page table and the frame header
+    page_table_[page_id] = new_frame_id;
+    frame->page_id_ = page_id;
+    frame->pin_count_.fetch_add(1);
+    replacer_->RecordAccess(frame->frame_id_);
+    replacer_->SetEvictable(frame->frame_id_, false);
+
+    // Release the BPM latch to prevent deadlocking
+    lock.unlock();
+    // Construct the read page guard
+    WritePageGuard guard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+    return guard;
+  }
+
+  // Case 3:
+  // Need to evict a frame from replacer to free up one to use
+  auto evicted_frame_id = replacer_->FindEvictFrameWithoutEvict();
+  if (!evicted_frame_id.has_value()) {
+    // There are no pages to evict, this can happen - should it error out?
+    lock.unlock();
+    return std::nullopt;
+  }
+
+  // Now can use this frame to create a ReadPageGuard
+  auto frame_opt = FindFrameHeader(evicted_frame_id.value());
+  BUSTUB_ASSERT(frame_opt.has_value(), "FrameHeader should exist after retrieving frame from replacer Evict");
+
+  // Check the pin count, cannot evict if pin count is greater than 0
+  if (frame_opt.value()->pin_count_.load() > 0) {
+    // Must return because you cannot evict if the pin count is greater than 0
+    lock.unlock();
+    return std::nullopt;
+  }
+  // Now that we checked the pin count, we can evict/remove from replacer
+  replacer_->Remove(evicted_frame_id.value());
+
+  std::shared_ptr<FrameHeader> frame = frame_opt.value();
+  BUSTUB_ASSERT(frame->page_id_.has_value(),
+                "BufferPoolManager::CheckedWritePage the evicted FrameHeader should have a page associated with it");
+
+  // Flush the old evicted frame from memory to disk if dirty
+  if (frame->is_dirty_) {
+    // Schedule the I/O to write the page data from memory to disk
+    ScheduleIO(true, frame->GetDataMut(), frame->page_id_.value());
+    frame->is_dirty_ = false;
+  }
+
+  // Handle reseting frame and reassigning new page info
+  BUSTUB_ASSERT(page_table_.count(frame->page_id_.value()) > 0,
+                "BufferPoolManager::CheckedWritePage Evicted page not found in page table");
+  page_table_.erase(frame->page_id_.value());
+  frame->Reset();
+  frame->page_id_ = page_id;
+  page_table_[page_id] = frame->frame_id_;
+  frame->pin_count_.fetch_add(1);
+  replacer_->RecordAccess(frame->frame_id_);
+  replacer_->SetEvictable(frame->frame_id_, false);
+
+  // Schedule the I/O to read the page data from disk to memory
+  ScheduleIO(false, frame->GetDataMut(), page_id);
+
+  // Release the BPM's latch to prevent deadlocking
+  lock.unlock();
+  // Create the read guard
+  WritePageGuard guard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+  return guard;
+  // // Don't keep the BPM's latch?
+  // lock.unlock();
+  // return std::nullopt;
 }
 
 /**
@@ -197,9 +332,17 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  *
  * ### Implementation
  *
- * See the implementation details of `CheckedWritePage`.
+ * There are 3 main cases that you will have to implement. The first two are relatively simple: one is when there is
+ * plenty of available memory, and the other is when we don't actually need to perform any additional I/O. Think about
+ * what exactly these two cases entail.
  *
- * TODO(P1): Add implementation.
+ * The third case is the trickiest, and it is when we do not have any _easily_ available memory at our disposal. The
+ * buffer pool is tasked with finding memory that it can use to bring in a page of memory, using the replacement
+ * algorithm you implemented previously to find candidate frames for eviction.
+ *
+ * Once the buffer pool has identified a frame for eviction, several I/O operations may be necessary to bring in the
+ * page of data we want into the frame.
+ *
  *
  * @param page_id The ID of the page we want to read.
  * @param access_type The type of page access.
@@ -207,7 +350,114 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * returns `std::nullopt`, otherwise returns a `ReadPageGuard` ensuring shared and read-only access to a page's data.
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::unique_lock<std::mutex> lock(*bpm_latch_);
+
+  // Case 1:
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // Then page is already in BPM memory
+    auto it = page_table_.find(page_id);
+    auto frame = FindFrameHeader(it->second);  // it -> second get's the value, frame_id
+    BUSTUB_ASSERT(frame.has_value(),
+                  "BufferPoolManager::CheckedReadPage FrameHeader should exist after inserting frame_id");
+
+    frame.value()->pin_count_.fetch_add(1);
+    replacer_->RecordAccess(frame.value()->frame_id_);
+    replacer_->SetEvictable(frame.value()->frame_id_, false);
+    // Release BPM's latch before acquiring the frame's latch
+    lock.unlock();
+    ReadPageGuard guard(page_id, frame.value(), replacer_, bpm_latch_, disk_scheduler_);
+    return guard;
+  }
+
+  // Case 2:
+  // Memory is available, need to do I/O
+  if (!free_frames_.empty()) {
+    // Pick a free frame from free_frames
+    frame_id_t new_frame_id = free_frames_.front();
+    free_frames_.remove(new_frame_id);
+    auto frame_opt = FindFrameHeader(new_frame_id);
+
+    BUSTUB_ASSERT(frame_opt.has_value(),
+                  "BufferPoolManager::CheckedReadPage FrameHeader should exist after retrieving from free frames");
+
+    std::shared_ptr<FrameHeader> frame = frame_opt.value();
+
+    // Schedule the I/O to read the page data from disk to memory
+    ScheduleIO(false, frame->GetDataMut(), page_id);
+
+    // Update the page table and the frame header
+    page_table_[page_id] = new_frame_id;
+    frame->page_id_ = page_id;
+    frame->pin_count_.fetch_add(1);
+    replacer_->RecordAccess(frame->frame_id_);
+    replacer_->SetEvictable(frame->frame_id_, false);
+
+    // Release BPM's latch before acquiring the frame's latch
+    lock.unlock();
+    // Construct the read page guard
+    ReadPageGuard guard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+    return guard;
+  }
+
+  // Case 3:
+  // Need to evict a frame from replacer to free up one to use
+
+  // Find the frame we want to evict/remove from the replacer
+  auto evicted_frame_id = replacer_->FindEvictFrameWithoutEvict();
+  if (!evicted_frame_id.has_value()) {
+    // There are no pages to evict, this can happen - should it error out?
+    lock.unlock();
+    return std::nullopt;
+  }
+
+  // Now can use this frame to create a ReadPageGuard
+  auto frame_opt = FindFrameHeader(evicted_frame_id.value());
+  BUSTUB_ASSERT(frame_opt.has_value(),
+                "BufferPoolManager::CheckedReadPage FrameHeader should exist after retrieving frame from replacer");
+  if (frame_opt.value()->pin_count_.load() > 0) {
+    // Must return because you cannot evict if the pin count is greater than 0
+    lock.unlock();
+    return std::nullopt;
+  }
+  // Now that we checked the pin count, we can evict/remove from replacer
+  replacer_->Remove(evicted_frame_id.value());
+
+  std::shared_ptr<FrameHeader> frame = frame_opt.value();
+  if (!frame->page_id_.has_value()) {
+    // Error, the evicted FrameHeader should have a page associated with it
+    lock.unlock();
+    return std::nullopt;
+  }
+
+  // Flush the old evicted frame from memory to disk if dirty
+  if (frame->is_dirty_) {
+    // Schedule the I/O to write the page data from memory to disk
+    ScheduleIO(true, frame->GetDataMut(), frame->page_id_.value());
+    frame->is_dirty_ = false;
+  }
+
+  // Handle reseting frame and reassigning new page info
+  BUSTUB_ASSERT(page_table_.count(frame->page_id_.value()) > 0,
+                "BufferPoolManager::CheckedReadPage Evicted page not found in page table");
+  page_table_.erase(frame->page_id_.value());
+  frame->Reset();
+  frame->page_id_ = page_id;
+  page_table_[page_id] = frame->frame_id_;
+  frame->pin_count_.fetch_add(1);
+  replacer_->RecordAccess(frame->frame_id_);
+  replacer_->SetEvictable(frame->frame_id_, false);
+
+  // Schedule the I/O to read the page data from disk to memory
+  ScheduleIO(false, frame->GetDataMut(), page_id);
+
+  // Release BPM's latch before acquiring the frame's latch
+  lock.unlock();
+  // Create the read guard
+  ReadPageGuard guard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+  return guard;
+
+  // lock.unlock();
+  // return std::nullopt;
 }
 
 /**
@@ -231,8 +481,7 @@ auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type) -> 
     fmt::println(stderr, "\n`CheckedWritePage` failed to bring in page {}\n", page_id);
     std::abort();
   }
-
-  return std::move(guard_opt).value();
+  return std::move(guard_opt.value());
 }
 
 /**
@@ -257,7 +506,11 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
     std::abort();
   }
 
-  return std::move(guard_opt).value();
+  // return std::move(guard_opt.value());
+  BUSTUB_ASSERT(guard_opt.has_value(), "CheckedReadPage failed");
+  ReadPageGuard guard = std::move(*guard_opt);  // move from a named object, not a temp
+  // std::cerr << "Returning guard from ReadPage with frame = " << guard.frame_.get() << "\n";
+  return guard;
 }
 
 /**
@@ -274,12 +527,14 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * You should probably leave implementing this function until after you have completed `CheckedReadPage` and
  * `CheckedWritePage`, as it will likely be much easier to understand what to do.
  *
- * TODO(P1): Add implementation
+ * TODO(abeach): Add implementation
  *
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table, otherwise `true`.
  */
-auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
+  UNIMPLEMENTED("TODO(abeach): Add implementation.");
+}
 
 /**
  * @brief Flushes a page's data out to disk safely.
@@ -294,12 +549,12 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool { UNIMPLEMENT
  * You should probably leave implementing this function until after you have completed `CheckedReadPage`,
  * `CheckedWritePage`, and `Flush` in the page guards, as it will likely be much easier to understand what to do.
  *
- * TODO(P1): Add implementation
+ * TODO(abeach): Add implementation
  *
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table, otherwise `true`.
  */
-auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(abeach): Add implementation."); }
 
 /**
  * @brief Flushes all page data that is in memory to disk unsafely.
@@ -312,9 +567,9 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TO
  * You should probably leave implementing this function until after you have completed `CheckedReadPage`,
  * `CheckedWritePage`, and `FlushPage`, as it will likely be much easier to understand what to do.
  *
- * TODO(P1): Add implementation
+ * TODO(abeach): Add implementation
  */
-void BufferPoolManager::FlushAllPagesUnsafe() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPagesUnsafe() { UNIMPLEMENTED("TODO(abeach): Add implementation."); }
 
 /**
  * @brief Flushes all page data that is in memory to disk safely.
@@ -326,9 +581,9 @@ void BufferPoolManager::FlushAllPagesUnsafe() { UNIMPLEMENTED("TODO(P1): Add imp
  * You should probably leave implementing this function until after you have completed `CheckedReadPage`,
  * `CheckedWritePage`, and `FlushPage`, as it will likely be much easier to understand what to do.
  *
- * TODO(P1): Add implementation
+ * TODO(abeach): Add implementation
  */
-void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(abeach): Add implementation."); }
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
@@ -349,13 +604,59 @@ void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implement
  * Again, if you are unfamiliar with atomic types, see the official C++ docs
  * [here](https://en.cppreference.com/w/cpp/atomic/atomic).
  *
- * TODO(P1): Add implementation
+ * TODO(abeach): Add implementation
  *
  * @param page_id The page ID of the page we want to get the pin count of.
  * @return std::optional<size_t> The pin count if the page exists, otherwise `std::nullopt`.
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock<std::mutex> guard(*bpm_latch_);
+  auto it = page_table_.find(page_id);
+  if (it != page_table_.end()) {
+    // Page exists in the page table
+    auto frame_opt = FindFrameHeader(it->second);  // it -> second get's the value, frame_id
+    BUSTUB_ASSERT(frame_opt.has_value(),
+                  "BufferPoolManager::GetPinCount FrameHeader should exist after retrieving frame page table");
+
+    return frame_opt.value()->pin_count_.load();
+  }
+  return std::nullopt;
+}
+
+/**
+ * @brief Helper Function - Find Frame Header
+ * Retrieves the frame header from the Buffer Pool Manager's list of frame via the frame id
+ *
+ * @param frame_id the frame ID that we want to find
+ * @return std::optional<std::shared_ptr<FrameHeader>>
+ */
+auto BufferPoolManager::FindFrameHeader(frame_id_t frame_id) -> std::optional<std::shared_ptr<FrameHeader>> {
+  for (std::shared_ptr<FrameHeader> frame_header : frames_) {
+    if (frame_header->frame_id_ == frame_id) {
+      return frame_header;
+    }
+  }
+  // Did not find the frame in BPM's frames, error
+  return std::nullopt;
+}
+
+/**
+ * @brief Helper Function - Schedule I/O
+ * Uses the disk scheduler to schedule the I/O needed
+ *
+ * @param is_write flag if we should write to disk (from memory) or read from disk (to memory)
+ * @param data is a pointer to the data to be written or read from disk
+ * @param page_id is the page id that is going to be written/read from disk
+ * @return std::optional<std::shared_ptr<FrameHeader>>
+ */
+// NOLINTNEXTLINE(readability-non-const-parameter)
+void BufferPoolManager::ScheduleIO(bool is_write, char *data,
+                                   page_id_t page_id)  // NOLINT(readability-non-const-parameter)
+{
+  std::promise<bool> p;
+  auto f = p.get_future();
+  disk_scheduler_->Schedule({is_write, data, page_id, std::move(p)});
+  f.get();
 }
 
 }  // namespace bustub
