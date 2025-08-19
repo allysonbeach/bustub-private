@@ -24,7 +24,7 @@ class HyperLogLog {
   HyperLogLog() = delete;
 
   /** @brief Parameterized constructor. */
-  explicit HyperLogLog(int16_t n_bits);
+  explicit HyperLogLog(int16_t n_bits) : b_(n_bits), m_(1ULL << n_bits), registers_(m_, 0){};
 
   /**
    * @brief Getter value for cardinality.
@@ -63,6 +63,24 @@ class HyperLogLog {
   }
 
   /**
+   * @brief Gets the register index value from the inital bits.
+   *
+   * @param[in] bits - the original bitset from the hash of size BITSET_CAPACITY
+   * @param[in] b - the size of the intial bits that will be used to determine the register index
+   */
+  template <size_t N>
+  size_t ExtractInitialBits(const std::bitset<N> &bits, size_t b) {
+    size_t register_index = 0;
+    for (size_t i = 0; i < b; ++i) {
+      register_index <<= 1;
+      if (bits[N - 1 - i]) {  // indexing from MSB to LSB
+        register_index |= 1;
+      }
+    }
+    return register_index;
+  }
+
+  /**
    * @brief Function that computes binary.
    *
    *
@@ -77,10 +95,16 @@ class HyperLogLog {
    * @param[in] bset - binary values of a given bitset
    * @returns leading zeros of given binary set
    */
-  auto PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
+  auto CalculateNumberOfLeadingZeroes(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
 
   /** @brief Cardinality value. */
-  size_t cardinality_;
+  size_t cardinality_ = 0;
+
+  int16_t b_;  // number of bits for register index
+  size_t m_;   // number of registers = 2^b_
+
+  /** Register that stores the max leading zero count (p) per register */
+  std::vector<uint8_t> registers_;
 
   /** @todo (student) can add their data structures that support HyperLogLog */
 };

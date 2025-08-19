@@ -97,3 +97,10 @@ add_dependencies(test-p3 sqllogictest)
 # Must build sqllogictest before checking tests
 add_dependencies(build-tests sqllogictest)
 add_dependencies(check-tests sqllogictest)
+add_executable(debug_lru_k 
+        ${PROJECT_SOURCE_DIR}/test/buffer/debug_lru_k_replacer.cpp
+        ${PROJECT_SOURCE_DIR}/src/buffer/buffer_pool_manager.cpp
+        ${PROJECT_SOURCE_DIR}/src/storage/disk/disk_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/src/storage/page/page_guard.cpp
+)
+target_link_libraries(debug_lru_k PRIVATE bustub)
