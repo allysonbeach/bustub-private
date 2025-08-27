@@ -51,7 +51,6 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
 
 auto LRUKReplacer::FindEvictFrameWithoutEvict() -> std::optional<frame_id_t> {
   // std::scoped_lock<std::mutex> guard(latch_);
-
   std::optional<frame_id_t> frame_id_to_evict = std::nullopt;
   size_t backward_k_distance = 0;
 
@@ -88,7 +87,6 @@ auto LRUKReplacer::FindEvictFrameWithoutEvict() -> std::optional<frame_id_t> {
   if (frame_id_to_evict.has_value()) {
     return frame_id_to_evict.value();
   }
-
   return std::nullopt;
 }
 

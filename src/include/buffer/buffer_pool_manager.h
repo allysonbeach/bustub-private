@@ -12,9 +12,11 @@
 
 #pragma once
 
+#include <iostream>
 #include <list>
 #include <memory>
 #include <shared_mutex>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -24,6 +26,11 @@
 #include "storage/disk/disk_scheduler.h"
 #include "storage/page/page.h"
 #include "storage/page/page_guard.h"
+
+#define LOG_FUNCTION_CALL()                                                                    \
+  do {                                                                                         \
+    std::cout << "[Thread " << std::this_thread::get_id() << "] " << __func__ << " called.\n"; \
+  } while (0)
 
 namespace bustub {
 
@@ -56,6 +63,7 @@ class WritePageGuard;
  * so. However, you will likely benefit significantly from detecting buffer overflow in future projects (especially
  * project 2).
  */
+
 class FrameHeader {
   friend class BufferPoolManager;
   friend class ReadPageGuard;
@@ -90,6 +98,8 @@ class FrameHeader {
    */
   std::vector<char> data_;
 
+  bool needs_to_be_reloaded_{false};  // this is set to TRUE after a dirty page is flushed
+
   /**
    * TODO(abeach): You may add any fields or helper functions under here that you think are necessary.
    *
@@ -97,7 +107,8 @@ class FrameHeader {
    * currently storing. This might allow you to skip searching for the corresponding (page ID, frame ID) pair somewhere
    * else in the buffer pool manager...
    */
-  std::optional<page_id_t> page_id_;
+  page_id_t page_id_{INVALID_PAGE_ID};
+  void UpdatePageId(page_id_t new_page_id);
 };
 
 /**
@@ -173,10 +184,13 @@ class BufferPoolManager {
    * stored inside of it. Additionally, you may also want to implement a helper function that returns either a shared
    * pointer to a `FrameHeader` that already has a page's data stored inside of it, or an index to said `FrameHeader`.
    */
-  auto GetAFreeFrameId() -> frame_id_t;
   auto FindFrameHeader(frame_id_t frame_id /*will need to either pass in the data or page id, not sure which yet */)
       -> std::optional<std::shared_ptr<FrameHeader>>;
   // NOLINTNEXTLINE(readability-non-const-parameter)
-  void ScheduleIO(bool is_write, char *data, page_id_t page_id);  // NOLINT(readability-non-const-parameter)
+  void ScheduleIO(bool is_write, std::shared_ptr<FrameHeader> &frame_header_ptr, page_id_t page_id);  // NOLINT(readability-non-const-parameter)
+  auto LoadPageIntoFrame(page_id_t page_id, frame_id_t frame_id) -> std::shared_ptr<FrameHeader>;
+  auto GetOrMakeFrameForGuard(page_id_t page_id, bool is_write) -> std::optional<std::shared_ptr<FrameHeader>>;
+  void CallDibsOnHeader(const std::shared_ptr<FrameHeader> &frame_header_ptr, bool is_write);
+  auto TryToEvictPage(bool is_write) -> std::optional<frame_id_t>;
 };
 }  // namespace bustub

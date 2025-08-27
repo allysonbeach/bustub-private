@@ -54,6 +54,7 @@ void DiskScheduler::StartWorkerThread() {
       break;
     }
     DiskRequest request = std::move(*opt);
+    // disk_manager_->IncreaseDiskSpace(request.page_id_ + 1);
     try {
       if (request.is_write_) {
         disk_manager_->WritePage(request.page_id_, request.data_);
