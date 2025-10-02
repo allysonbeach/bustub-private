@@ -126,11 +126,9 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  * @return The page ID of the newly allocated page.
  */
 auto BufferPoolManager::NewPage() -> page_id_t {
-  // LOG_FUNCTION_CALL();
-  size_t new_page_id = next_page_id_.fetch_add(1);
+  int new_page_id = next_page_id_.fetch_add(1);
   disk_scheduler_->IncreaseDiskSpace(new_page_id + 1);
-  // printf("BPM New Page called, increasing disk for next page id %d\n", next_page_id_.load());
-  return next_page_id_.load();
+  return new_page_id;
 }
 
 /**
@@ -159,7 +157,6 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
-  // LOG_FUNCTION_CALL();
   printf("BPM DeletePage page id %d.\n", page_id);
   std::scoped_lock<std::mutex> lock(*bpm_latch_);
   // Case 1: page is not in the page table, so not in memory. Remove from disk
@@ -167,7 +164,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   if (it == page_table_.end()) {
     printf("BPM::DeletePage page id is NOT in the page table \n");
     // Page id is not in the page table, thereofre it is not in memory, but could be on disk
-    disk_scheduler_->DeallocatePage(page_id);
+    // could be a future improvement, disk_scheduler_->DeallocatePage(page_id);
     return true;
   }
 
