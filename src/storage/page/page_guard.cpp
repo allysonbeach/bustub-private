@@ -96,11 +96,11 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
     }
 
     // Move from that to this
-    this -> page_id_ = that.page_id_;
-    this -> frame_ = std::move(that.frame_);
-    this -> replacer_ = std::move(that.replacer_);
-    this -> bpm_latch_ = std::move(that.bpm_latch_);
-    this -> is_valid_ = that.is_valid_;
+    this->page_id_ = that.page_id_;
+    this->frame_ = std::move(that.frame_);
+    this->replacer_ = std::move(that.replacer_);
+    this->bpm_latch_ = std::move(that.bpm_latch_);
+    this->is_valid_ = that.is_valid_;
 
     // Invalidate thatobject
     that.page_id_ = INVALID_PAGE_ID;  // figure out what is an invalid value
@@ -181,7 +181,7 @@ void ReadPageGuard::Drop() {
   // std::cerr << "ReadPageGuard::Drop called (is_valid_ = " << is_valid_
   //         << ", frame = " << static_cast<const void *>(frame_.get()) << ")\n";
   // printf("Drop::ReadPageGuard is valid [%s] for for page id %d \n", is_valid_ ? "true" : "false", page_id_);
-  if (!this -> is_valid_) {
+  if (!this->is_valid_) {
     // std::cerr << "Drop skipped (is_valid_ = false)\n";
     return;
   }
@@ -299,11 +299,11 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
       return *this;
     }
     // Move from that to this
-    this -> page_id_ = that.page_id_;
-    this -> frame_ = std::move(that.frame_);
-    this -> replacer_ = std::move(that.replacer_);
-    this -> bpm_latch_ = std::move(that.bpm_latch_);
-    this -> is_valid_ = that.is_valid_;
+    this->page_id_ = that.page_id_;
+    this->frame_ = std::move(that.frame_);
+    this->replacer_ = std::move(that.replacer_);
+    this->bpm_latch_ = std::move(that.bpm_latch_);
+    this->is_valid_ = that.is_valid_;
 
     // Invalidate thatobject
     that.page_id_ = INVALID_PAGE_ID;  // figure out what is an invalid value
@@ -389,7 +389,7 @@ void WritePageGuard::Flush() {
  */
 void WritePageGuard::Drop() {
   // printf("Drop::WritePageGuard is valid [%s] for for page id %d \n", is_valid_ ? "true" : "false", page_id_);
-  if (!this -> is_valid_) {
+  if (!this->is_valid_) {
     return;
   }
   // LOG_FUNCTION_CALL();

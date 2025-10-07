@@ -187,7 +187,8 @@ class BufferPoolManager {
   auto FindFrameHeader(frame_id_t frame_id /*will need to either pass in the data or page id, not sure which yet */)
       -> std::optional<std::shared_ptr<FrameHeader>>;
   // NOLINTNEXTLINE(readability-non-const-parameter)
-  void ScheduleIO(bool is_write, std::shared_ptr<FrameHeader> &frame_header_ptr, page_id_t page_id);  // NOLINT(readability-non-const-parameter)
+  void ScheduleIO(bool is_write, std::shared_ptr<FrameHeader> &frame_header_ptr,
+                  page_id_t page_id);  // NOLINT(readability-non-const-parameter)
   auto LoadPageIntoFrame(page_id_t page_id, frame_id_t frame_id) -> std::shared_ptr<FrameHeader>;
   auto GetOrMakeFrameForGuard(page_id_t page_id, bool is_write) -> std::optional<std::shared_ptr<FrameHeader>>;
   void CallDibsOnHeader(const std::shared_ptr<FrameHeader> &frame_header_ptr, bool is_write);

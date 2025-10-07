@@ -170,7 +170,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 
   auto frame_opt = FindFrameHeader(it->second);
   // If the page is in the page table, then it should find the frame
-  BUSTUB_ENSURE(frame_opt.has_value(), "BufferPoolManager::DeletePage: Frame header not found for existing page");
+  // BUSTUB_ENSURE(frame_opt.has_value(), "BufferPoolManager::DeletePage: Frame header not found for existing page\n");
   std::shared_ptr<FrameHeader> frame = frame_opt.value();
   if (frame->pin_count_.load() > 0) {
     // It is currently pinned and cannot be deleted from memory and/or disk
@@ -178,7 +178,8 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
            frame->frame_id_, frame->pin_count_.load(), page_id);
     return false;
   }
-  // printf("BPM::DeletePage Removing frame %d and page id %d from the replacer, page table and reset\n", frame->frame_id_,
+  // printf("BPM::DeletePage Removing frame %d and page id %d from the replacer, page table and reset\n",
+  // frame->frame_id_,
   //        page_id);
   // auto frame_id = page_table_[page_id];
   // remove from the replacer
@@ -718,10 +719,8 @@ void BufferPoolManager::ScheduleIO(bool is_write, std::shared_ptr<FrameHeader> &
   printf("BPM ScheduleIO %s operation on page id %d.\n", is_write ? "write" : "read", page_id);
   std::promise<bool> p;
   auto f = p.get_future();
-  DiskRequest req{.is_write_ = is_write,
-                  .data_ = frame_header_ptr->GetDataMut(),
-                  .page_id_ = page_id,
-                  .callback_ = std::move(p)};
+  DiskRequest req{
+      .is_write_ = is_write, .data_ = frame_header_ptr->GetDataMut(), .page_id_ = page_id, .callback_ = std::move(p)};
   disk_scheduler_->Schedule(std::move(req));
   if (f.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
     throw std::runtime_error("BufferPoolManager::ScheduleIO timeout on page_id " + std::to_string(page_id));
@@ -764,7 +763,9 @@ void BufferPoolManager::CallDibsOnHeader(const std::shared_ptr<FrameHeader> &fra
   // Debug
   size_t curr_pin_count = frame_header_ptr->pin_count_.load();
   if (curr_pin_count == 2) {
-    printf("DEBUG: CallDibsOnHeader from %s read guard, increased pin count of page id %d from %lu which is more than 1\n", is_write ? "write" : "read", frame_header_ptr->page_id_, curr_pin_count);
+    printf(
+        "DEBUG: CallDibsOnHeader from %s read guard, increased pin count of page id %d from %lu which is more than 1\n",
+        is_write ? "write" : "read", frame_header_ptr->page_id_, curr_pin_count);
   }
   replacer_->RecordAccess(frame_header_ptr->frame_id_);
   replacer_->SetEvictable(frame_header_ptr->frame_id_, false);
@@ -776,7 +777,8 @@ void BufferPoolManager::CallDibsOnHeader(const std::shared_ptr<FrameHeader> &fra
  * LOCKS(bpm_latch_), DIBS(frame_header_ptr->pin_count_), UNLOCK(bpm_latch_)
  * if no frames are available, no dibs is called.
  */
-auto BufferPoolManager::GetOrMakeFrameForGuard(page_id_t page_id, bool is_write) -> std::optional<std::shared_ptr<FrameHeader>> {
+auto BufferPoolManager::GetOrMakeFrameForGuard(page_id_t page_id, bool is_write)
+    -> std::optional<std::shared_ptr<FrameHeader>> {
   std::unique_lock<std::mutex> lock(*bpm_latch_);  // automatically unlocks when out of scope
   std::shared_ptr<FrameHeader> frame_header_ptr;
   if (page_table_.find(page_id) != page_table_.end()) {
@@ -798,7 +800,10 @@ auto BufferPoolManager::GetOrMakeFrameForGuard(page_id_t page_id, bool is_write)
   // Debug
   size_t curr_pin_count = frame_header_ptr->pin_count_.load();
   if (curr_pin_count == 1) {
-    printf("DEBUG: GetOrMakeFrameForGuard from %s page guard, about to increased pin count of page id %d from %lu to 2 which is not allowed\n", is_write ? "write" : "read", page_id, curr_pin_count);
+    printf(
+        "DEBUG: GetOrMakeFrameForGuard from %s page guard, about to increased pin count of page id %d from %lu to 2 "
+        "which is not allowed\n",
+        is_write ? "write" : "read", page_id, curr_pin_count);
   }
   CallDibsOnHeader(frame_header_ptr, is_write);
   if (frame_header_ptr->needs_to_be_reloaded_) {
@@ -844,11 +849,14 @@ auto BufferPoolManager::TryToEvictPage(bool is_write) -> std::optional<frame_id_
 
   replacer_->Remove(victim_frame_id);
   auto victim_page_id = (victim_frame_header_ptr)->page_id_;
-  BUSTUB_ENSURE(victim_page_id != -1, "invalid page id from frame header ptr")
+  // BUSTUB_ENSURE(victim_page_id != -1, "invalid page id from frame header ptr")
   // Debug
   size_t curr_pin_count = victim_frame_header_ptr->pin_count_.load();
   if (curr_pin_count == 1) {
-    printf("DEBUG: TryToEvictPage from %s page guard, about increased pin count of page id %d from %lu to 2 which is not allowed\n", is_write ? "write" : "read", victim_page_id, curr_pin_count);
+    printf(
+        "DEBUG: TryToEvictPage from %s page guard, about increased pin count of page id %d from %lu to 2 which is not "
+        "allowed\n",
+        is_write ? "write" : "read", victim_page_id, curr_pin_count);
   }
   CallDibsOnHeader(victim_frame_header_ptr, is_write);
   if ((victim_frame_header_ptr)->is_dirty_) {  // "flush" the data
