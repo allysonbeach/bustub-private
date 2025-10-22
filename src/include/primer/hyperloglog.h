@@ -35,6 +35,7 @@ class HyperLogLog {
   /** @brief Disable default constructor. */
   HyperLogLog() = delete;
 
+  /** @brief Parameterized constructor. */
   explicit HyperLogLog(int16_t n_bits) : b_(n_bits), m_(1ULL << n_bits), registers_(m_, 0){};
 
   /**
@@ -83,8 +84,21 @@ class HyperLogLog {
     return register_index;
   }
 
+  /**
+   * @brief Function that computes binary.
+   *
+   *
+   * @param[in] hash
+   * @returns binary of a given hash
+   */
   auto ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY>;
 
+  /**
+   * @brief Function that computes leading zeros.
+   *
+   * @param[in] bset - binary values of a given bitset
+   * @returns leading zeros of given binary set
+   */
   auto CalculateNumberOfLeadingZeroes(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
 
   /** @brief Cardinality value. */

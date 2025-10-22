@@ -6,11 +6,12 @@
 //
 // Identification: src/storage/disk/disk_scheduler.cpp
 //
-// Copyright (c) 2015-2025, Carnegie Mellon University Database Group
+// Copyright (c) 2015-2023, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
 #include "storage/disk/disk_scheduler.h"
+#include <optional>
 #include "common/exception.h"
 #include "storage/disk/disk_manager.h"
 
@@ -30,18 +31,13 @@ DiskScheduler::~DiskScheduler() {
 }
 
 /**
- *
  * @brief Schedules a request for the DiskManager to execute.
  *
  * @param r The request to be scheduled.
  */
-void DiskScheduler::Schedule(DiskRequest r) {
-  // Thread safe queue's put
-  request_queue_.Put(std::make_optional(std::move(r)));
-}
+void DiskScheduler::Schedule(DiskRequest r) { request_queue_.Put(std::optional<DiskRequest>(std::move(r))); }
 
 /**
- *
  * @brief Background worker thread function that processes scheduled requests.
  *
  * The background thread needs to process requests while the DiskScheduler exists, i.e., this function should not
@@ -49,22 +45,18 @@ void DiskScheduler::Schedule(DiskRequest r) {
  */
 void DiskScheduler::StartWorkerThread() {
   while (true) {
-    auto opt = request_queue_.Get();
-    if (!opt.has_value()) {
-      break;
+    auto job = request_queue_.Get();
+    if (job == std::nullopt) {
+      return;
     }
-    DiskRequest request = std::move(*opt);
-    // disk_manager_->IncreaseDiskSpace(request.page_id_ + 1);
-    try {
-      if (request.is_write_) {
-        disk_manager_->WritePage(request.page_id_, request.data_);
-      } else {
-        disk_manager_->ReadPage(request.page_id_, request.data_);
-      }
-      request.callback_.set_value(true);
-    } catch (...) {
-      request.callback_.set_exception(std::current_exception());
+    if (job->is_write_) {
+      disk_manager_->WritePage(job->page_id_, job->data_);
+      job->callback_.set_value(true);
+    } else {
+      disk_manager_->ReadPage(job->page_id_, job->data_);
+      job->callback_.set_value(true);
     }
   }
 }
+
 }  // namespace bustub

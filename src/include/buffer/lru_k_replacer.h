@@ -95,6 +95,19 @@ class LRUKReplacer {
 
   auto FindEvictFrameWithoutEvict() -> std::optional<frame_id_t>;
 
+  /**
+   * TODO(P1): Add implementation
+   *
+   * @brief Record the event that the given frame id is accessed at current timestamp.
+   * Create a new entry for access history if frame id has not been seen before.
+   *
+   * If frame id is invalid (ie. larger than replacer_size_), throw an exception. You can
+   * also use BUSTUB_ASSERT to abort the process if frame id is invalid.
+   *
+   * @param frame_id id of frame that received a new access.
+   * @param access_type type of access that was received. This parameter is only needed for
+   * leaderboard tests.
+   */
   void RecordAccess(frame_id_t frame_id, AccessType access_type = AccessType::Unknown);
 
   void SetEvictable(frame_id_t frame_id, bool set_evictable);
