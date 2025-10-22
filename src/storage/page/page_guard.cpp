@@ -6,12 +6,11 @@
 //
 // Identification: src/storage/page/page_guard.cpp
 //
-// Copyright (c) 2015-2025, Carnegie Mellon University Database Group
+// Copyright (c) 2024-2024, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
 #include "storage/page/page_guard.h"
-#include <memory>
 
 namespace bustub {
 
@@ -25,7 +24,6 @@ namespace bustub {
  * @param frame A shared pointer to the frame that holds the page we want to protect.
  * @param replacer A shared pointer to the buffer pool manager's replacer.
  * @param bpm_latch A shared pointer to the buffer pool manager's latch.
- * @param disk_scheduler A shared pointer to the buffer pool manager's disk scheduler.
  */
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
@@ -189,14 +187,14 @@ void ReadPageGuard::Drop() {
   }
   std::unique_lock<std::mutex> lock(*bpm_latch_);
   // BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
-                // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
+  // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
   // std::cerr << "Dropping ReadPageGuard on frame " << frame_->frame_id_
   //           << " with pin_count= " << frame_->pin_count_.load() << '\n';
   // printf("Drop::ReadPageGuard frame id %d with pin count %lu \n", this->frame_->frame_id_,
   // this->frame_->pin_count_.load());
 
   // BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
-                // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
+  // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
   this->frame_->pin_count_.fetch_sub(1);
   if (this->frame_->pin_count_.load() == 0) {
     this->replacer_->SetEvictable(frame_->frame_id_, true);
@@ -233,7 +231,6 @@ ReadPageGuard::~ReadPageGuard() {
  * @param frame A shared pointer to the frame that holds the page we want to protect.
  * @param replacer A shared pointer to the buffer pool manager's replacer.
  * @param bpm_latch A shared pointer to the buffer pool manager's latch.
- * @param disk_scheduler A shared pointer to the buffer pool manager's disk scheduler.
  */
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)

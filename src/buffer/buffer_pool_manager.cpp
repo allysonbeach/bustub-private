@@ -6,7 +6,7 @@
 //
 // Identification: src/buffer/buffer_pool_manager.cpp
 //
-// Copyright (c) 2015-2025, Carnegie Mellon University Database Group
+// Copyright (c) 2015-2024, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
@@ -76,7 +76,7 @@ BufferPoolManager::BufferPoolManager(size_t num_frames, DiskManager *disk_manage
       next_page_id_(0),
       bpm_latch_(std::make_shared<std::mutex>()),
       replacer_(std::make_shared<LRUKReplacer>(num_frames, k_dist)),
-      disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
+      disk_scheduler_(std::make_unique<DiskScheduler>(disk_manager)),
       log_manager_(log_manager) {
   // Not strictly necessary...
   std::scoped_lock latch(*bpm_latch_);
@@ -143,7 +143,14 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * function. You will probably want to implement this function _after_ you have implemented `CheckedReadPage` and
  * `CheckedWritePage`.
  *
- * You should call `DeallocatePage` in the disk scheduler to make the space available for new pages.
+ * Ideally, we would want to ensure that all space on disk is used efficiently. That would mean the space that deleted
+ * pages on disk used to occupy should somehow be made available to new pages allocated by `NewPage`.
+ *
+ * If you would like to attempt this, you are free to do so. However, for this implementation, you are allowed to
+ * assume you will not run out of disk space and simply keep allocating disk space upwards in `NewPage`.
+ *
+ * For (nonexistent) style points, you can still call `DeallocatePage` in case you want to implement something slightly
+ * more space-efficient in the future.
  *
  *
  * @param page_id The page ID of the page we want to delete.
