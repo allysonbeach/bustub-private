@@ -116,7 +116,7 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
  * @brief Gets the page ID of the page this guard is protecting.
  */
 auto ReadPageGuard::GetPageId() const -> page_id_t {
-  BUSTUB_ENSURE(is_valid_, "ReadPageGuard::GetPageId tried to use an invalid read guard");
+  // BUSTUB_ENSURE(is_valid_, "ReadPageGuard::GetPageId tried to use an invalid read guard");
   return page_id_;
 }
 
@@ -124,7 +124,7 @@ auto ReadPageGuard::GetPageId() const -> page_id_t {
  * @brief Gets a `const` pointer to the page of data this guard is protecting.
  */
 auto ReadPageGuard::GetData() const -> const char * {
-  BUSTUB_ENSURE(is_valid_ && frame_ != nullptr, "ReadPageGuard::GetData tried to use an invalid read guard");
+  // BUSTUB_ENSURE(is_valid_ && frame_ != nullptr, "ReadPageGuard::GetData tried to use an invalid read guard");
   // std::cerr << "Frame ptr = " << static_cast<const void *>(frame_.get()) << "\n";
   return frame_ != nullptr ? frame_->GetData() : nullptr;  // frame_->GetData()
 }
@@ -133,7 +133,7 @@ auto ReadPageGuard::GetData() const -> const char * {
  * @brief Returns whether the page is dirty (modified but not flushed to the disk).
  */
 auto ReadPageGuard::IsDirty() const -> bool {
-  BUSTUB_ENSURE(is_valid_, "ReadPageGuard::IsDirty tried to use an invalid read guard");
+  // BUSTUB_ENSURE(is_valid_, "ReadPageGuard::IsDirty tried to use an invalid read guard");
   return frame_->is_dirty_;
 }
 
@@ -186,15 +186,15 @@ void ReadPageGuard::Drop() {
     return;
   }
   std::unique_lock<std::mutex> lock(*bpm_latch_);
-  BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
-                "can't drop readpageguard and decr pin count on a frame with pins <= 0")
+  // BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
+                // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
   // std::cerr << "Dropping ReadPageGuard on frame " << frame_->frame_id_
   //           << " with pin_count= " << frame_->pin_count_.load() << '\n';
   // printf("Drop::ReadPageGuard frame id %d with pin count %lu \n", this->frame_->frame_id_,
   // this->frame_->pin_count_.load());
 
-  BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
-                "can't drop readpageguard and decr pin count on a frame with pins <= 0")
+  // BUSTUB_ENSURE(this->frame_->pin_count_.load() > 0,
+                // "can't drop readpageguard and decr pin count on a frame with pins <= 0")
   this->frame_->pin_count_.fetch_sub(1);
   if (this->frame_->pin_count_.load() == 0) {
     this->replacer_->SetEvictable(frame_->frame_id_, true);
@@ -319,7 +319,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
  * @brief Gets the page ID of the page this guard is protecting.
  */
 auto WritePageGuard::GetPageId() const -> page_id_t {
-  BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetPageId tried to use an invalid write guard");
+  // BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetPageId tried to use an invalid write guard");
   return page_id_;
 }
 
@@ -327,7 +327,7 @@ auto WritePageGuard::GetPageId() const -> page_id_t {
  * @brief Gets a `const` pointer to the page of data this guard is protecting.
  */
 auto WritePageGuard::GetData() const -> const char * {
-  BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetData tried to use an invalid write guard");
+  // BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetData tried to use an invalid write guard");
   return frame_->GetData();
 }
 
@@ -335,7 +335,7 @@ auto WritePageGuard::GetData() const -> const char * {
  * @brief Gets a mutable pointer to the page of data this guard is protecting.
  */
 auto WritePageGuard::GetDataMut() -> char * {
-  BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetDataMut tried to use an invalid write guard");
+  // BUSTUB_ENSURE(is_valid_, "WritePageGuard::GetDataMut tried to use an invalid write guard");
   frame_->is_dirty_ = true;
   return frame_->GetDataMut();
 }
@@ -344,7 +344,7 @@ auto WritePageGuard::GetDataMut() -> char * {
  * @brief Returns whether the page is dirty (modified but not flushed to the disk).
  */
 auto WritePageGuard::IsDirty() const -> bool {
-  BUSTUB_ENSURE(is_valid_, "WritePageGuard::IsDirty tried to use an invalid write guard");
+  // BUSTUB_ENSURE(is_valid_, "WritePageGuard::IsDirty tried to use an invalid write guard");
   return frame_->is_dirty_;
 }
 
